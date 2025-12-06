@@ -1,18 +1,26 @@
-name: Docker Image CI
+name: Deploy Images to GHCR
 
 on:
-  push:
-    branches: [ "master" ]
-  pull_request:
-    branches: [ "master" ]
+  workflow_dispatch:
 
 jobs:
+      push-store-image:
+        runs-on: ubuntu-latest
+        defaults:
+          run:
+            working-directory: './Store'
+        steps:
+          - name: 'Checkout GitHub Action'
+            uses: actions/checkout@main
 
-  build:
+          - name: 'Login to GitHub Container Registry'
+            uses: docker/login-action@v1
+            with:
+              registry: ghcr.io
+              username: ${{github.actor}}
+              password: ${{secrets.GITHUB_TOKEN}}
 
-    runs-on: ubuntu-latest
-
-    steps:
-    - uses: actions/checkout@v4
-    - name: Build the Docker image
-      run: docker build . --file Dockerfile --tag lingui_analysis:$(date +%s)
+          - name: 'Build Inventory Image'
+            run: |
+              docker build . --tag ghcr.io/Abzwingten/lingui_analysis:latest
+              docker push ghcr.io/Abzwingten/lingui_analysis:latest
