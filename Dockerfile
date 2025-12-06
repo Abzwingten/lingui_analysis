@@ -1,6 +1,9 @@
 # Dockerfile
 FROM python:3.9-slim
 
+LABEL org.opencontainers.image.source="https://github.com/Abzwingten/lingui_analysis"
+
+
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
 ENV DEBIAN_FRONTEND=noninteractive
