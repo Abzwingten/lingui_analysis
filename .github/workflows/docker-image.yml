@@ -19,5 +19,5 @@ jobs:
 
           - name: 'Build Inventory Image'
             run: |
-              docker build . --tag ghcr.io/${{github.actor}}/lingui_analysis:latest
-              docker push ghcr.io/${{github.actor}}/lingui_analysis:latest
+              docker build . --tag ghcr.io/abzwingten/lingui_analysis:latest
+              docker push ghcr.io/abzwingten/lingui_analysis:latest
