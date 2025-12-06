@@ -29,13 +29,10 @@ RUN apt-get update && \
 
 # Install Python dependencies
 COPY requirements.txt .
-RUN  pip3 install --upgrade pip 
 
 RUN pip install --upgrade pip && \
     pip install  --no-cache-dir -r requirements.txt
 
-# Загрузка spaCy модели
-RUN python -c "import spacy; spacy.cli.download('ru_core_news_sm')" 
 
 
 

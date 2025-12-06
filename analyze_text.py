@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Docker-compatible command-line tool for comprehensive linguistic analysis of Russian texts.
+Lightweight linguistic analysis tool for Russian texts - NO spaCy version
 Generates an HTML report with lexical diversity metrics, morphological analysis, and visualizations.
 
-Usage inside Docker:
+Usage:
     docker run linguistic-analyzer /app/input/text.txt -o /app/output/report.html
 """
 
@@ -16,21 +16,22 @@ from collections import Counter
 import math
 import numpy as np
 import matplotlib
-matplotlib.use('Agg')  # Use non-interactive backend for Docker
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
 import nltk
+from nltk.tokenize import sent_tokenize
+from razdel import sentenize, tokenize
 from pymystem3 import Mystem
 from lexical_diversity import lex_div as ld
 from ruts import BasicStats, SentsExtractor, WordsExtractor
-import spacy
 from pymorphy2 import MorphAnalyzer
 
-# Configure matplotlib for Docker environment
+# Configure matplotlib for headless environments
 plt.rcParams.update({
     'figure.figsize': (10, 6),
-    'font.family': 'DejaVu Sans',  # Available in Docker container
+    'font.family': 'DejaVu Sans',
     'axes.unicode_minus': False
 })
 
@@ -43,11 +44,11 @@ try:
     nltk.download('punkt', download_dir=nltk_data_path, quiet=True)
     nltk.download('stopwords', download_dir=nltk_data_path, quiet=True)
 except Exception as e:
-    print(f"⚠️ Warning: Could not download NLTK  {e}", file=sys.stderr)
+    print(f"⚠️ Warning: Could not download NLTK data: {e}", file=sys.stderr)
 
 # Initialize analyzers
 morph = MorphAnalyzer()
-nlp = spacy.load("ru_core_news_sm")
+mystem = Mystem()
 
 def clean_text(text):
     """Clean text from special characters"""
@@ -57,7 +58,7 @@ def clean_text(text):
 
 def morphological_analysis(text):
     """Perform morphological analysis using pymorphy2"""
-    words = nltk.word_tokenize(text.lower(), language='russian')
+    words = [word.text for word in tokenize(text.lower())]
     stopwords = set(nltk.corpus.stopwords.words('russian'))
     content_words = [w for w in words if w.isalpha() and len(w) > 2 and w not in stopwords]
     
@@ -75,7 +76,7 @@ def morphological_analysis(text):
     for word in content_words:
         parses = morph.parse(word)
         if parses:
-            parse = parses[0]  # Take most probable parse
+            parse = parses[0]
             pos = parse.tag.POS
             
             if pos:
@@ -117,25 +118,28 @@ def morphological_analysis(text):
     }
 
 def syntactic_complexity(text):
-    """Analyze syntactic complexity"""
-    doc = nlp(text)
+    """Analyze syntactic complexity using razdel instead of spaCy"""
+    # Get sentences using razdel
+    sentences = [sent.text for sent in sentenize(text)]
     
-    # Sentence lengths
-    sent_lengths = [len([token for token in sent if not token.is_punct]) for sent in doc.sents]
+    # Calculate sentence lengths
+    sent_lengths = []
+    for sent in sentences:
+        words = [word.text for word in tokenize(sent)]
+        content_words = [w for w in words if w.isalpha() and len(w) > 1]
+        sent_lengths.append(len(content_words))
     
-    # Complexity markers
+    # Complexity markers (simplified version)
     clause_markers = [',', ';', ':', 'а', 'но', 'и', 'потому что', 'который', 'что', 'если']
     clause_counts = []
     
-    for sent in doc.sents:
-        text = sent.text.lower()
-        count = sum(1 for marker in clause_markers if marker in text)
+    for sent in sentences:
+        lower_sent = sent.lower()
+        count = sum(1 for marker in clause_markers if marker in lower_sent)
         clause_counts.append(count)
     
-    # Average sentence length
+    # Calculate averages
     avg_sent_length = np.mean(sent_lengths) if sent_lengths else 0
-    
-    # Sentence complexity index
     avg_clause_count = np.mean(clause_counts) if clause_counts else 0
     
     return {
@@ -148,23 +152,35 @@ def syntactic_complexity(text):
 
 def readability_index(text):
     """Calculate readability index for Russian text"""
-    words = nltk.word_tokenize(text.lower(), language='russian')
-    sentences = nltk.sent_tokenize(text, language='russian')
+    # Use razdel for tokenization
+    words = [word.text for word in tokenize(text.lower())]
+    sentences = [sent.text for sent in sentenize(text)]
+    
+    # Filter words
+    content_words = [w for w in words if w.isalpha()]
+    
+    if not content_words or not sentences:
+        return {
+            'readability_score': 0,
+            'avg_word_length': 0,
+            'avg_sentence_length': 0,
+            'percent_long_words': 0
+        }
     
     # Words longer than 6 characters are considered complex
-    long_words = [w for w in words if len(w) > 6 and w.isalpha()]
+    long_words = [w for w in content_words if len(w) > 6]
     
-    avg_word_length = np.mean([len(w) for w in words if w.isalpha()]) if words else 0
-    avg_sent_length = len(words) / len(sentences) if sentences else 0
+    avg_word_length = np.mean([len(w) for w in content_words])
+    avg_sent_length = len(content_words) / len(sentences)
     
-    # Simplified readability index adapted from Flesch-Kincaid
-    readability = 206.835 - 1.3 * avg_word_length - 60.1 * (len(sentences) / len(words)) if words and sentences else 0
+    # Simplified readability index
+    readability = 206.835 - 1.3 * avg_word_length - 60.1 * (len(sentences) / len(content_words))
     
     return {
-        'readability_score': max(0, min(100, readability)),  # Clamp to 0-100
+        'readability_score': max(0, min(100, readability)),
         'avg_word_length': avg_word_length,
         'avg_sentence_length': avg_sent_length,
-        'percent_long_words': len(long_words) / len(words) * 100 if words else 0
+        'percent_long_words': len(long_words) / len(content_words) * 100 if content_words else 0
     }
 
 def generate_visualizations(text, words, morph_analysis, output_dir):
@@ -191,7 +207,7 @@ def generate_visualizations(text, words, morph_analysis, output_dir):
     if morph_analysis and morph_analysis.get('pos_percentages'):
         plt.figure(figsize=(10, 8))
         pos_data = pd.Series(morph_analysis['pos_percentages'])
-        pos_data = pos_data.sort_values(ascending=False).head(10)  # Take top 10
+        pos_data = pos_data.sort_values(ascending=False).head(10)
         
         # POS translation dictionary
         pos_translation = {
@@ -225,16 +241,17 @@ def generate_visualizations(text, words, morph_analysis, output_dir):
 
 def generate_html_report(text, file_name, output_path, vis_paths):
     """Generate HTML report with all metrics"""
-    # Extract sentences and words
-    se = SentsExtractor()
-    sentences = se.extract(text)
+    # Get basic statistics
+    bs = BasicStats(text)
+    basic_stats = bs.get_stats()
     
-    we = WordsExtractor(use_lexemes=True, filter_nums=True)
-    words = we.extract(text)
+    # Extract sentences and words using razdel
+    sentences = [sent.text for sent in sentenize(text)]
+    words = [word.text for word in tokenize(text)]
     
     # Remove stopwords for diversity analysis
     stopwords = nltk.corpus.stopwords.words('russian')
-    content_words = [w for w in words if w not in stopwords and len(w) > 2]
+    content_words = [w for w in words if w.isalpha() and w not in stopwords and len(w) > 2]
     
     if not content_words:
         raise ValueError("No content words left after processing. Try a longer text.")
@@ -251,13 +268,10 @@ def generate_html_report(text, file_name, output_path, vis_paths):
     # Lexical diversity metrics
     tokens = content_words
     metrics = {
-        # Basic TTR metrics
         'TTR': ld.ttr(tokens),
         'Root TTR': ld.root_ttr(tokens),
         'Log TTR': ld.log_ttr(tokens),
         'Maas TTR': ld.maas_ttr(tokens),
-        
-        # Advanced metrics
         'MSTTR (50 words)': ld.msttr(tokens, window_length=50),
         'MATTR (50 words)': ld.mattr(tokens, window_length=50),
         'MATTR (100 words)': ld.mattr(tokens, window_length=100),
@@ -266,10 +280,6 @@ def generate_html_report(text, file_name, output_path, vis_paths):
         'MTLD-MA (Wrap)': ld.mtld_ma_wrap(tokens),
         'MTLD-MA (Bidirectional)': ld.mtld_ma_bid(tokens)
     }
-    
-    # Basic statistics
-    bs = BasicStats(text)
-    basic_stats = bs.get_stats()
     
     # POS translation dictionary
     pos_translation = {
@@ -382,7 +392,7 @@ def generate_html_report(text, file_name, output_path, vis_paths):
 </head>
 <body>
     <div class="container">
-        <h1>📊 Comprehensive Linguistic Analysis Report</h1>
+        <h1>📊 Comprehensive Linguistic Analysis Report (Lightweight Version)</h1>
         <p><strong>File:</strong> {os.path.basename(file_name)}</p>
         <p><strong>Generated:</strong> {os.path.basename(output_path)}</p>
         <p><strong>Date:</strong> {os.popen('date').read().strip()}</p>
@@ -508,7 +518,7 @@ def generate_html_report(text, file_name, output_path, vis_paths):
         </div>
         
         <div class="footer">
-            <p>Report generated using ruTS, lexical_diversity, NLTK, spaCy and pymorphy2 libraries.</p>
+            <p>Report generated using ruTS, lexical_diversity, NLTK, razdel and pymorphy2 libraries. <strong>NO spaCy version</strong> - 400MB smaller!</p>
             <p>For more information on metrics, visit: 
                 <a href="https://github.com/SergeyShk/ruTS">ruTS GitHub</a> | 
                 <a href="https://github.com/kristopherkyle/lexical_diversity">lexical_diversity GitHub</a>
@@ -530,7 +540,7 @@ def generate_html_report(text, file_name, output_path, vis_paths):
         print(f"📊 Parts of speech distribution chart: {os.path.basename(vis_paths['pos_distribution'])}")
 
 def main():
-    parser = argparse.ArgumentParser(description='Analyze Russian text for lexical diversity and linguistic features.')
+    parser = argparse.ArgumentParser(description='Analyze Russian text for lexical diversity and linguistic features (Lightweight version without spaCy).')
     parser.add_argument('input_file', help='Path to the text file to analyze (.txt)')
     parser.add_argument('-o', '--output', help='Output HTML file name (default: report.html)', default='report.html')
     args = parser.parse_args()
@@ -565,8 +575,7 @@ def main():
         sys.exit(1)
     
     # Extract words for visualization
-    we = WordsExtractor(use_lexemes=True, filter_nums=True)
-    words = we.extract(cleaned_text)
+    words = [word.text for word in tokenize(cleaned_text)]
     
     # Get directory for output files
     output_dir = os.path.dirname(os.path.abspath(args.output))
